@@ -1,14 +1,28 @@
+// TicketSearch.jsx
 import { useEffect, useState } from "react";
 import axios from "axios";
 import TicketMap from "../components/TicketMap";
 
 const debounce = (fn, delay) => {
   let timer;
-
   return (...args) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };
+};
+
+const RiskBadge = ({ risk }) => {
+  const colors = {
+    HIGH: "bg-red-600 text-white",
+    MEDIUM: "bg-yellow-500 text-white",
+    LOW: "bg-green-600 text-white",
+  };
+
+  return (
+    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${colors[risk] || "bg-gray-300"}`}>
+      {risk || "-"}
+    </span>
+  );
 };
 
 export default function TicketSearch() {
@@ -17,48 +31,41 @@ export default function TicketSearch() {
     stationCode: "",
     utilityType: "",
     bbox: "-90,-180,90,180",
+    radiusMeters: 250,
   });
 
-  const [data, setData] = useState([]);
+  const [tickets, setTickets] = useState([]);
+  const [summary, setSummary] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [total, setTotal] = useState(0);
 
   const [page, setPage] = useState(1);
   const [limit] = useState(5);
   const [totalPages, setTotalPages] = useState(0);
-  const [bbox, setBbox] = useState("-90,-180,90,180");
 
-   const updateBboxDebounced = debounce((bounds) => {
-    const bboxString = `${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}`;
-
+  const updateBboxDebounced = debounce((bounds) => {
     setFilters((prev) => ({
       ...prev,
-      bbox: bboxString,
+      bbox: `${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}`,
     }));
-
     setPage(1);
   }, 800);
-  
-  // handle input changes
-  const handleChange = (e) => {
-    setFilters({
-      ...filters,
-      [e.target.name]: e.target.value,
-    });
 
-    // reset page when filters change
-    setPage(1);
+  const handleChange = (e) => {
+    setFilters((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
   };
 
-  // main API call
   const search = async (currentPage = page) => {
     setLoading(true);
     setError("");
 
     try {
       const res = await axios.get(
-        "http://localhost:3000/api/tickets/search",
+        "http://localhost:3000/api/tickets/conflicts",
         {
           params: {
             ...filters,
@@ -68,156 +75,199 @@ export default function TicketSearch() {
         }
       );
 
-      setData(res.data.data);
-      setTotal(res.data.summary?.total || 0);
-      setTotalPages(res.data.summary?.totalPages || 0);
+      setTickets(res.data.tickets || []);
+      setSummary(res.data.summary || null);
       setPage(res.data.summary?.page || currentPage);
-    } catch (err) {
-      setError("Failed to fetch tickets. Please try again.");
+      setTotalPages(res.data.summary?.totalPages || 1);
+    } catch (e) {
+      setError("Failed to load tickets.");
     } finally {
       setLoading(false);
     }
   };
 
-  // auto-fetch when page changes
   useEffect(() => {
     search(page);
   }, [page]);
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto p-6">
 
-      {/* HEADER */}
-      <h1 className="text-3xl font-bold mb-2 text-gray-800">
-        Ticket Search Dashboard
+      <h1 className="text-3xl font-bold mb-6">
+        Ticket Conflict Dashboard
       </h1>
 
-      {/* SUMMARY */}
-      <div className="mb-4 text-gray-600">
-        Total Tickets:{" "}
-        <span className="font-bold text-blue-600">{total}</span>
-      </div>
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div className="bg-white shadow rounded p-4">
+            <p>Total</p>
+            <h2 className="text-2xl font-bold">{summary.total}</h2>
+          </div>
 
-      {/* LOADING */}
-      {loading && (
-        <div className="text-blue-600 mb-3">
-          Loading tickets...
+          <div className="bg-red-100 rounded p-4">
+            <p>High</p>
+            <h2 className="text-2xl font-bold">{summary.highRisk}</h2>
+          </div>
+
+          <div className="bg-yellow-100 rounded p-4">
+            <p>Medium</p>
+            <h2 className="text-2xl font-bold">{summary.mediumRisk}</h2>
+          </div>
+
+          <div className="bg-green-100 rounded p-4">
+            <p>Low</p>
+            <h2 className="text-2xl font-bold">{summary.lowRisk}</h2>
+          </div>
+
+          <div className="bg-blue-100 rounded p-4">
+            <p>Outside Area</p>
+            <h2 className="text-2xl font-bold">{summary.outsideServiceArea}</h2>
+          </div>
         </div>
       )}
 
-      {/* ERROR */}
-      {error && (
-        <div className="text-red-600 mb-3">
-          {error}
-        </div>
-      )}
+      <div className="grid md:grid-cols-3 gap-4 bg-white p-4 rounded shadow mb-6">
 
-      {/* FILTERS */}
-      <div className="bg-white shadow-md rounded-2xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-
-        <input
-          name="status"
-          placeholder="Status"
+        <input className="border p-2 rounded"
+          name="bbox"
+          value={filters.bbox}
           onChange={handleChange}
-          className="border border-gray-300 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="minLng,minLat,maxLng,maxLat"
         />
 
-        <input
+        <input className="border p-2 rounded"
           name="stationCode"
-          placeholder="Station Code"
+          value={filters.stationCode}
           onChange={handleChange}
-          className="border border-gray-300 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Station Code"
         />
 
-        <input
+        <input className="border p-2 rounded"
           name="utilityType"
-          placeholder="Utility Type"
+          value={filters.utilityType}
           onChange={handleChange}
-          className="border border-gray-300 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Utility Type"
+        />
+
+        <input className="border p-2 rounded"
+          name="status"
+          value={filters.status}
+          onChange={handleChange}
+          placeholder="Status"
+        />
+
+        <input className="border p-2 rounded"
+          name="radiusMeters"
+          type="number"
+          value={filters.radiusMeters}
+          onChange={handleChange}
+          placeholder="Radius"
         />
 
         <button
-          onClick={() => search(1)}
+          onClick={() => {
+            setPage(1);
+            search(1);
+          }}
           disabled={loading}
-          className={`px-6 py-3 rounded-xl text-white font-medium transition duration-200
-          ${loading ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"}`}
+          className="bg-blue-600 text-white rounded p-2"
         >
           {loading ? "Searching..." : "Search"}
         </button>
 
       </div>
 
-      {/* Ticket Map */}
+      {loading && <p className="mb-4 text-blue-600">Loading...</p>}
+      {error && <p className="mb-4 text-red-600">{error}</p>}
+
       <TicketMap
-        tickets={data}
+        tickets={tickets}
         onBoundsChange={updateBboxDebounced}
-       />
-      {/* TABLE */}
-      <div className="bg-white shadow-md rounded-2xl overflow-hidden">
+      />
 
-        <table className="w-full text-sm">
+      {summary?.byUtilityType && (
+        <div className="grid md:grid-cols-4 gap-3 my-6">
+          {Object.entries(summary.byUtilityType).map(([key, value]) => (
+            <div key={key} className="bg-white rounded shadow p-3">
+              <strong>{key}</strong>
+              <p>{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
-          <thead className="bg-gray-100 text-gray-700">
+      <div className="overflow-auto bg-white rounded shadow">
+
+        <table className="w-full">
+
+          <thead className="bg-gray-100">
             <tr>
-              <th className="p-3 text-left">Ticket No</th>
-              <th className="p-3 text-left">Status</th>
-              <th className="p-3 text-left">Priority</th>
-              <th className="p-3 text-left">Station</th>
-              <th className="p-3 text-left">Utility</th>
-              <th className="p-3 text-left">Lat</th>
-              <th className="p-3 text-left">Lng</th>
+              <th className="p-2">Ticket</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Station</th>
+              <th>Utility</th>
+              <th>Risk</th>
+              <th>Inside Area</th>
+              <th>Nearest Emergency</th>
+              <th>Distance</th>
+              <th>Lat</th>
+              <th>Lng</th>
             </tr>
           </thead>
 
           <tbody>
-            {data.length === 0 && !loading ? (
+
+            {tickets.length === 0 && !loading && (
               <tr>
-                <td colSpan="7" className="p-4 text-center text-gray-500">
-                  No tickets found
+                <td colSpan="11" className="text-center p-6">
+                  No tickets found.
                 </td>
               </tr>
-            ) : (
-              data.map((t, i) => (
-                <tr key={i} className="border-t hover:bg-gray-50 transition">
-                  <td className="p-3">{t.ticketNo}</td>
-                  <td className="p-3">{t.status}</td>
-                  <td className="p-3">{t.priority}</td>
-                  <td className="p-3">{t.stationCode}</td>
-                  <td className="p-3">{t.utilityType}</td>
-                  <td className="p-3">{t.latitude}</td>
-                  <td className="p-3">{t.longitude}</td>
-                </tr>
-              ))
             )}
+
+            {tickets.map((t) => (
+              <tr key={t.id} className="border-t">
+                <td className="p-2">{t.ticketNo}</td>
+                <td>{t.status}</td>
+                <td>{t.priority}</td>
+                <td>{t.stationCode}</td>
+                <td>{t.utilityType}</td>
+                <td><RiskBadge risk={t.riskLevel} /></td>
+                <td>{t.insideServiceArea ? "Yes" : "No"}</td>
+                <td>{t.nearestEmergencyTicketNo ?? "-"}</td>
+                <td>{t.distanceToNearestEmergencyMeters ?? "-"}</td>
+                <td>{t.latitude}</td>
+                <td>{t.longitude}</td>
+              </tr>
+            ))}
+
           </tbody>
 
         </table>
 
       </div>
 
-      {/* PAGINATION */}
-      <div className="flex items-center justify-between mt-6">
-
+      <div className="flex justify-between mt-6">
         <button
           disabled={page <= 1}
-          onClick={() => setPage((prev) => prev - 1)}
-          className="px-4 py-2 bg-gray-200 rounded-xl disabled:opacity-50"
+          onClick={() => setPage((p) => p - 1)}
+          className="px-4 py-2 bg-gray-200 rounded"
         >
           Previous
         </button>
 
-        <div className="text-gray-700">
+        <div>
           Page {page} of {totalPages}
         </div>
 
         <button
           disabled={page >= totalPages}
-          onClick={() => setPage((prev) => prev + 1)}
-          className="px-4 py-2 bg-gray-200 rounded-xl disabled:opacity-50"
+          onClick={() => setPage((p) => p + 1)}
+          className="px-4 py-2 bg-gray-200 rounded"
         >
           Next
         </button>
-
       </div>
 
     </div>
